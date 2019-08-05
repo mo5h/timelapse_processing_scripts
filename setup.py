@@ -8,5 +8,5 @@ setup(
     license='',
     author='hamish',
     author_email='',
-    description='', install_requires=['cv2', 'scikit-image', 'imutils']
+    description='', install_requires=['opencv-python', 'scikit-image', 'imutils']
 )
