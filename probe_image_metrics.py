@@ -45,8 +45,6 @@ def determineIfBlurry(imagePath):
     #print("variance of laplacian:" + repr(fm))
 
 
-def removeDupes
-
 if __name__ == "__main__":
     photos_ = [x for x in paths.list_images("/home/hamish/buffer/sample_photos/")]
     for photo in photos_:

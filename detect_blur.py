@@ -16,7 +16,9 @@ threshold = 8
 PictureStruct = namedtuple("PictureStruct", "blurryness path date_taken")
 
 # added regex filter to cut down the number of images for testing
-photos_ = [x for x in paths.list_images("/server_share/Photos/timelapse_photos/") if re.search("6[5-9]\d\d", x)]
+#photos_ = [x for x in paths.list_images("/server_share/Photos/timelapse_photos/") if re.search("6[5-9]\d\d", x)]
+photos_ = [x for x in paths.list_images("/server_share/Photos/timelapse_photos/") ]
+
 middle_lines = []
 
 

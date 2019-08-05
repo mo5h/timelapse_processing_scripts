@@ -1,5 +1,6 @@
 Installation:
 
+`apt install python3-pip`
 `python3 -m venv env
 source env/bin/activate
 python setup.py install`
