@@ -1,6 +1,9 @@
 # import the necessary packages
 import re
+import logging
+logging.basicConfig(filename='example.log',level=logging.DEBUG)
 
+import numpy
 from imutils import paths
 from multiprocessing import Pool
 from collections import namedtuple
@@ -13,11 +16,11 @@ import sys
 
 blurryOrNot = {}
 threshold = 8
-PictureStruct = namedtuple("PictureStruct", "blurryness path date_taken")
+PictureStruct = namedtuple("PictureStruct", "blurryness path date_taken color")
 
 # added regex filter to cut down the number of images for testing
-#photos_ = [x for x in paths.list_images("/server_share/Photos/timelapse_photos/") if re.search("6[5-9]\d\d", x)]
-photos_ = [x for x in paths.list_images("/server_share/Photos/timelapse_photos/") ]
+photos_ = [x for x in paths.list_images("/media/hamish/Elements/photos/photos/") if re.search("30\d\d\d\d", x)]#
+#photos_ = [x for x in paths.list_images("/media/hamish/Elements/photos/photos/") ]
 
 middle_lines = []
 
@@ -53,15 +56,16 @@ def thresholdImages(index, listOfPhotosWithBlurryness):
     if index != 0:
         i = listOfPhotosWithBlurryness[index]
 
-        # To make this output only the non-blurry ones (e.g for the input to a mencoder run comment out the print statements
-        if i.blurryness < threshold:
-            pass
-            debugLog(repr(i.blurryness))
-            debugLog(i.path + " is blurry")
+            # To make this output only the non-blurry ones (e.g for the input to a mencoder run comment out the print statements
+        if (i.color < 70):
+            debugLog("nighttime")
+            if (compute_metric(i.color, i.blurryness) < 0.9):
+                print(i.path)
         else:
-            print(i.path)
-            debugLog(i.path + " not blurry")
-        return i
+            debugLog("daytime")
+            if (i.blurryness < 3):
+                print(i.path)
+        #print(i.path)
 
 def determineIfBlurry(imagePath):
     # load the image, convert it to grayscale, and compute the
@@ -86,6 +90,9 @@ def determineIfBlurry(imagePath):
     #determines blurryness
     return calculateBlurryNess(imageA, imagePath)
 
+def compute_metric(color_, fm):
+    return fm / color_
+
 
 def calculateBlurryNess(imageA, imagePath):
     image = cv2.GaussianBlur(imageA, (7, 7), 0)  # This removes some of the noise
@@ -93,15 +100,17 @@ def calculateBlurryNess(imageA, imagePath):
     # cv2.imwrite("/home/hamish/buffer/cropped" + imagePath.split("/")[-1]+".jpg", image)
     gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
     # remove the sky since during the day it'll trick it into thinking it's out of focus
-    fm = variance_of_laplacian(gray[2000:3936])
+    fm = variance_of_laplacian(gray[:][1800:2000])
+    avg_color_per_row = numpy.average(gray[:][1800:2000], axis=0)
+    color = numpy.average(avg_color_per_row, axis=0)
 
     with open(imagePath, 'rb') as image_file: date = datetime.strptime(Image(image_file).datetime,"%Y:%m:%d %H:%M:%S").timestamp()
 
-    return PictureStruct(fm, imagePath, date)
+    return PictureStruct(fm, imagePath, date, color)
 
 
 def debugLog(message):
-    print(message)
+    #print(message)
     pass
 
 
