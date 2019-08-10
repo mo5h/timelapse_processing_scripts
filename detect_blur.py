@@ -55,21 +55,48 @@ def doit():
 def thresholdImages(index, listOfPhotosWithBlurryness):
     if index != 0:
         i = listOfPhotosWithBlurryness[index]
+        prevI = listOfPhotosWithBlurryness[index-1]
+
+
         if(i.sunset_metric<-100):
-            print(i.path)
+            recordAsToBeIncluded(i)
 
             # To make this output only the non-blurry ones (e.g for the input to a mencoder run comment out the print statements
         if (i.color < 70):
             debugLog("nighttime")
-            if (compute_metric(i.color, i.blurryness) < 0.9):
-                pass
-                #print(i.path)
+            metric = compute_metric(i.color, i.blurryness)
+            #print(metric)
+            if (metric < 1):
+                if(not compareWithPrevious(i, metric, prevI)):
+                    return
         else:
             debugLog("daytime")
-            if (i.blurryness < 4):
-                pass
-                #print(i.path)
-        print(i.path)
+            metric = i.blurryness / 4.0
+            if (metric < 1):
+                if(not compareWithPrevious(i, metric, prevI)):
+                    return
+        recordAsToBeIncluded(i)
+
+
+def compareWithPrevious(i, metric, prevI):
+    if (metric / compute_metric(prevI.color, prevI.blurryness) < 0.9):
+        #showImage(i, "blurry")
+        return False
+
+
+def recordAsToBeIncluded(i):
+    print(i.path)
+
+
+def showImage(i, metric):
+    cv2.namedWindow(i.path, cv2.WINDOW_AUTOSIZE)
+    resize = cv2.resize(cv2.imread(i.path), (1200, 1000))
+    font = cv2.FONT_HERSHEY_SIMPLEX
+    cv2.putText(resize, repr(metric),(10,800), font, 4,(255,255,255),2,cv2.LINE_AA)
+    cv2.imshow(i.path, resize)
+    cv2.waitKey(0)
+    cv2.destroyAllWindows()
+
 
 def determineIfBlurry(imagePath):
     # load the image, convert it to grayscale, and compute the
@@ -99,12 +126,12 @@ def compute_metric(color_, fm):
 
 
 def calculateBlurryNess(imageA, imagePath):
-    image = cv2.GaussianBlur(imageA, (7, 7), 0)  # This removes some of the noise
+    image = cv2.GaussianBlur(imageA, (15, 15), 0)  # This removes some of the noise
     # Writes a sample with the blur applied
     # cv2.imwrite("/home/hamish/buffer/cropped" + imagePath.split("/")[-1]+".jpg", image)
     gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
     # remove the sky since during the day it'll trick it into thinking it's out of focus
-    fm = variance_of_laplacian(gray[:][1800:2000])
+    fm = variance_of_laplacian(gray[:][2200:2400])*2
     avg_color_per_row = numpy.average(gray[:][1800:2000], axis=0)
     color = numpy.average(avg_color_per_row, axis=0)
 
