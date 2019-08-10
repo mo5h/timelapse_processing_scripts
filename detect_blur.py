@@ -16,10 +16,10 @@ import sys
 
 blurryOrNot = {}
 threshold = 8
-PictureStruct = namedtuple("PictureStruct", "blurryness path date_taken color")
+PictureStruct = namedtuple("PictureStruct", "blurryness path date_taken color sunset_metric")
 
 # added regex filter to cut down the number of images for testing
-photos_ = [x for x in paths.list_images("/media/hamish/Elements/photos/photos/") if re.search("30\d\d\d\d", x)]#
+photos_ = [x for x in paths.list_images("/media/hamish/Elements/photos/photos/") if re.search("350\d\d\d", x)]#
 #photos_ = [x for x in paths.list_images("/media/hamish/Elements/photos/photos/") ]
 
 middle_lines = []
@@ -55,17 +55,21 @@ def doit():
 def thresholdImages(index, listOfPhotosWithBlurryness):
     if index != 0:
         i = listOfPhotosWithBlurryness[index]
+        if(i.sunset_metric<-100):
+            print(i.path)
 
             # To make this output only the non-blurry ones (e.g for the input to a mencoder run comment out the print statements
         if (i.color < 70):
             debugLog("nighttime")
             if (compute_metric(i.color, i.blurryness) < 0.9):
-                print(i.path)
+                pass
+                #print(i.path)
         else:
             debugLog("daytime")
-            if (i.blurryness < 3):
-                print(i.path)
-        #print(i.path)
+            if (i.blurryness < 4):
+                pass
+                #print(i.path)
+        print(i.path)
 
 def determineIfBlurry(imagePath):
     # load the image, convert it to grayscale, and compute the
@@ -91,7 +95,7 @@ def determineIfBlurry(imagePath):
     return calculateBlurryNess(imageA, imagePath)
 
 def compute_metric(color_, fm):
-    return fm / color_
+    return fm / numpy.math.sqrt(color_)
 
 
 def calculateBlurryNess(imageA, imagePath):
@@ -104,9 +108,11 @@ def calculateBlurryNess(imageA, imagePath):
     avg_color_per_row = numpy.average(gray[:][1800:2000], axis=0)
     color = numpy.average(avg_color_per_row, axis=0)
 
+    sunset_metric = numpy.average(numpy.average(gray[1800:2000, 0:400], axis=0), axis=0) - numpy.average(numpy.average(gray[1800:2000, -400:], axis=0),axis=0)
+
     with open(imagePath, 'rb') as image_file: date = datetime.strptime(Image(image_file).datetime,"%Y:%m:%d %H:%M:%S").timestamp()
 
-    return PictureStruct(fm, imagePath, date, color)
+    return PictureStruct(fm, imagePath, date, color, sunset_metric)
 
 
 def debugLog(message):

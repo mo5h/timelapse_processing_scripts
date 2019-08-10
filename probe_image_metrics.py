@@ -47,7 +47,7 @@ def determineIfBlurry(imagePath, blurry="blurry"):
     gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
 
     # remove the sky since during the day it'll trick it into thinking it's out of focus
-    fm = variance_of_laplacian(gray[:][1800:2000])
+    fm = variance_of_laplacian(gray[:][1800:-1])
     avg_color_per_row = numpy.average(gray[:][1800:2000], axis=0)
     color_ = numpy.average(avg_color_per_row, axis=0)
 
@@ -56,18 +56,21 @@ def determineIfBlurry(imagePath, blurry="blurry"):
     # else:
     #     print("non blurry image")
 
+    if(numpy.average(numpy.average(gray[1800:2000, 0:200], axis=0), axis=0) - numpy.average(numpy.average(gray[1800:2000, -200:], axis=0),axis=0))<-100:
+        output_debug_stats(color_,fm,imagePath,False)
+        return
 
-
-    if (color_ < 70):
+    if (color_ < 40):
         print("nighttime")
-        if (compute_metric(color_, fm) < 0.9):
-            output_debug_stats(color_,fm,imagePath,"")
+        if (compute_metric(color_, fm) < 1.0):
+            print("blurry")
+            output_debug_stats(color_,fm,imagePath,True)
 
             return
     else:
         print("daytime")
         if (fm < 3):
-            output_debug_stats(color_,fm,imagePath,"")
+            output_debug_stats(color_,fm,imagePath,True)
 
 
 
@@ -82,25 +85,30 @@ def determineIfBlurry(imagePath, blurry="blurry"):
 
             return
 
-        output_debug_stats(color_,fm,imagePath,"non")
+    output_debug_stats(color_,fm,imagePath,False)
 
 
 
-def output_debug_stats(color_, fm, imagePath, blurry=""):
+def output_debug_stats(color_, fm, imagePath, blurry=False):
     print("file: " + imagePath)
-    if(blurry in imagePath):
-        return
-    else:
+    text = ""
+    if(blurry==False):
+        text= "not"
+    if(blurry == True and "non" in imagePath) or(blurry==False and "non" not in imagePath) :
         incorrecty = "incorrectly"
-    print("matched %s as %s blurry" % (incorrecty, blurry))
-    print("color" + repr(color_))
-    print("variance of laplacian:" + repr(fm))
-    print("metric:" + repr(compute_metric(color_, fm)))
-    print("================")
+        print("matched %s as %s blurry" % (incorrecty, text))
+        print("color" + repr(color_))
+        print("variance of laplacian:" + repr(fm))
+        print("metric:" + repr(compute_metric(color_, fm)))
+        print("================")
+    else:
+        incorrecty = "correctly"
+
+
 
 
 def compute_metric(color_, fm):
-    return fm /color_
+    return fm / numpy.math.sqrt(color_)
 
 
 if __name__ == "__main__":
