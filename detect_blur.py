@@ -17,12 +17,12 @@ import sys
 
 blurryOrNot = {}
 threshold = 8
-PictureStruct = namedtuple("PictureStruct", "blurryness path date_taken color sunset_metric, ratioBrightness")
+PictureStruct = namedtuple("PictureStruct", "blurryness path date_taken color sunset_metric")
 
 # added regex filter to cut down the number of images for testing
 #photos_ = [x for x in paths.list_images("/media/hamish/Elements/photos/photos/") if re.search("349\d\d\d", x)]#
 currentNumber = 350
-photos_ = [x for x in paths.list_images("/media/hamish/Elements/photos/photos/") if re.search("3500\d\d", x)]
+photos_ = [x for x in paths.list_images("/media/hamish/Elements/photos/photos/") if re.search(repr(currentNumber)+"\d\d\d", x)]
 #TODO: make this take off a 1000 image chunk at a time
 
 #photos_ = [x for x in paths.list_images("/media/hamish/Elements/photos/photos/") if re.search("34911\d", x)]
@@ -34,7 +34,7 @@ middle_lines = []
 
 debug = False
 addDebugInfoToImages = False
-loadDataFromExistingFile = True
+loadDataFromExistingFile = False
 
 #todo refactor this so it's using the same algorithim for analysis and actually processing
 def variance_of_laplacian(image):
@@ -65,26 +65,10 @@ def doit():
         debugLog("removing blurry photos and processing")
     # with Pool(16) as p:
     non_blurry_image_paths = [thresholdImages(index, listOfPhotosWithBlurryness) for index in range(len(listOfPhotosWithBlurryness))]
-    with Pool(16) as p:
-        p.map()
+    if(not loadDataFromExistingFile):
+        with open("./blurryness_data", 'wb') as data_backup:
+            pickle.dump(listOfPhotosWithBlurryness, data_backup)
 
-
-    with open("./blurryness_data", 'wb') as data_backup:
-        pickle.dump(listOfPhotosWithBlurryness, data_backup)
-
-
-def adjustBrightnessAndWriteNewFile():
-    # adjust brightness
-    hsv = cv2.cvtColor(output1, cv2.COLOR_BGR2HSV)  # convert it to hsv
-    hsv[:, 1750:, 2] = numpy.clip(hsv[:, 1750:, 2] * ratioOfThisImageBrightnessToAverage, 0, 255)
-    bgr = cv2.cvtColor(hsv, cv2.COLOR_HSV2BGR)
-
-    if (addDebugInfoToImages):
-        if (isNighttime(imagestruct)):
-            stampText("nighttime" + repr(metric), bgr)
-        else:
-            stampText("daytime" + repr(metric), bgr)
-    cv2.imwrite(path, bgr, [int(cv2.IMWRITE_JPEG_QUALITY), 99])
 
 def checkIfBlurry(metric, i, index, listOfPhotosWithBlurryness):
     if(metric <1.0):
@@ -152,18 +136,20 @@ def determineRelativeBrigtness(index, listOfPhotosWithBlurryness, metric, path):
     imagestruct = listOfPhotosWithBlurryness[index]
     output1  = readAndResize(imagestruct.path)
     if (not (index == 1 or index == len(listOfPhotosWithBlurryness) - 1)):
-        if(isNighttime(imagestruct.color)):
-            listToMean = []
-            last_good_image = getLastGoodImage(index, listOfPhotosWithBlurryness)
-            listToMean.append(readAndResize(listOfPhotosWithBlurryness[last_good_image].path)[:][0:1750])
-            next_good_image = getNextGoodImage(index, listOfPhotosWithBlurryness)
 
-            listToMean.append(readAndResize(listOfPhotosWithBlurryness[next_good_image].path)[:][0:1750])
-
-            finalistMeans = []
-            finalistMeans.append(output1[:][0:1750])
-            finalistMeans.append(numpy.mean(listToMean, axis=0))
-            output1[:][0:1750]= numpy.mean(finalistMeans, axis=0)
+        #this kinda works, but makes it take a lot longer for not a lot of benefit
+        # if(isNighttime(imagestruct.color)):
+        #     listToMean = []
+        #     last_good_image = getLastGoodImage(index, listOfPhotosWithBlurryness)
+        #     listToMean.append(readAndResize(listOfPhotosWithBlurryness[last_good_image].path)[:][0:1750])
+        #     next_good_image = getNextGoodImage(index, listOfPhotosWithBlurryness)
+        #
+        #     listToMean.append(readAndResize(listOfPhotosWithBlurryness[next_good_image].path)[:][0:1750])
+        #
+        #     finalistMeans = []
+        #     finalistMeans.append(output1[:][0:1750])
+        #     finalistMeans.append(numpy.mean(listToMean, axis=0))
+        #     output1[:][0:1750]= numpy.mean(finalistMeans, axis=0)
 
         color = imagestruct.color
 
@@ -179,14 +165,14 @@ def determineRelativeBrigtness(index, listOfPhotosWithBlurryness, metric, path):
 
         averageBrightness = (listOfPhotosWithBlurryness[index - 1].color + listOfPhotosWithBlurryness[
             index + 1].color) / 2
-        listOfPhotosWithBlurryness[index].ratioBrightness = averageBrightness / color
+        ratioBrightness = averageBrightness / color
     else:
         # output1= cv2.imread(listOfPhotosWithBlurryness[index].path)
 
-        listOfPhotosWithBlurryness[index].ratioBrightness = 1.0
+        ratioBrightness = 1.0
         # adjust brightness
     hsv = cv2.cvtColor(output1, cv2.COLOR_BGR2HSV)  # convert it to hsv
-    hsv[:, 1750:, 2] = numpy.clip(hsv[:, 1750:, 2] * listOfPhotosWithBlurryness[index].ratioBrightness, 0, 255)
+    hsv[:, :, 2] = numpy.clip(hsv[:, :, 2] * ratioBrightness, 0, 255)
     bgr = cv2.cvtColor(hsv, cv2.COLOR_HSV2BGR)
 
     if (addDebugInfoToImages):
