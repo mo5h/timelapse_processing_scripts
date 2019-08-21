@@ -1,79 +1,59 @@
 # import the necessary packages
 import pickle
 import re
-import logging
-from concurrent.futures.thread import ThreadPoolExecutor
-
-logging.basicConfig(filename='example.log',level=logging.DEBUG)
-
+from concurrent.futures.process import ProcessPoolExecutor
 import numpy
 from imutils import paths
 from multiprocessing import Pool
 from collections import namedtuple
-import eventlet
-from skimage import data, io
-import argparse
 from exif import Image
-import threading
 from datetime import datetime
 import cv2
 import os.path
-import sys
 
 blurryOrNot = {}
 threshold = 8
 PictureStruct = namedtuple("PictureStruct", "blurryness path date_taken color sunset_metric")
 JobStruct = namedtuple("JobStruct", "files offset")
-
-
-# added regex filter to cut down the number of images for testing
-#photos_ = [x for x in paths.list_images("/media/hamish/Elements/photos/photos/") if re.search("349\d\d\d", x)]#
-#TODO: make this take off a 1000 image chunk at a time
-
-#photos_ = [x for x in paths.list_images("/media/hamish/Elements/photos/photos/") if re.search("34911\d", x)]
-#photos_ = [x for x in paths.list_images("/media/hamish/Elements/photos/photos/") if re.search("3520\d\d", x)]#
-
-#photos_ = [x for x in paths.list_images("/media/hamish/Elements/photos/photos/") ]
+reprocessed_images_path = "/media/hamish/Elements/Timelapse/reprocessed_images/"
+file_path_of_input_images = "/media/hamish/Elements/photos/photos/"
+precaculated_data_path = "/home/hamish/buffer/blurryness_data"
 
 middle_lines = []
 
+
+#various debugging flags
 debug = False
 addDebugInfoToImages = False
 loadDataFromExistingFile = False
 adjustExistingAdjustedImages = False
+manuallyReviewImages = False
 
 def variance_of_laplacian(image):
     # compute the Laplacian of the image and then return the focus
     # measure, which is simply the variance of the Laplacian
     return cv2.Laplacian(image, cv2.CV_64F).var()
 
-
 def sortingFunction(pictureStruct: PictureStruct):
     return pictureStruct.date_taken
 
-
+def fileNameSort(filename):
+    return int(filename.split("/")[-1][5:-4])
 fullListOfFilesWithBlurryness = []
 
 
 def doit():
-    # loop over the input images
-
-    #serial impl (for debugging)
-    # listOfPhotosWithBlurryness = sorted(
-    #     filter(None, [determineIfBlurry(photo) for photo in photos_]
-    #            )
-    #     , key=sortingFunction)
     preparedThreads = []
     startingNumber = 3550
     currentNumber = startingNumber
-    # while(currentNumber<3596):
     while(currentNumber<3650):
         debugLog("doing batch" + repr(currentNumber))
         startingIndex = (currentNumber - startingNumber) * 100
-        photos_ = [x for x in paths.list_images("/media/hamish/Elements/photos/photos/") if re.search(repr(currentNumber)+"\d\d", x)]
+        #e.g photo359863.jpg
+        photos_ = sorted([x for x in paths.list_images(file_path_of_input_images) if re.search(repr(currentNumber)+"\d\d", x)], key=fileNameSort)
         if(loadDataFromExistingFile):
             debugLog("loading from existing blurryness data file")
-            with open("/home/hamish/buffer/blurryness_data", 'rb') as data_backup:
+            with open(precaculated_data_path, 'rb') as data_backup:
 
                 listOfFilesWithBlurrynessForThisChunk = pickle.load(data_backup)[
                                                         startingIndex:(currentNumber - startingNumber + 1) * 100]
@@ -84,13 +64,8 @@ def doit():
                 listOfFilesWithBlurrynessForThisChunk = sorted(filter(None,p.map(determineIfBlurry, photos_)),key=sortingFunction )
             debugLog("removing blurry photos and processing")
 
-        #fullListOfFilesWithBlurryness = fullListOfFilesWithBlurryness[:655]
-        #remove_blurry_photos(fullListOfFilesWithBlurryness,beforeCalculatingBlurrynessCount)
-        # p = threading.Thread(target= remove_blurry_photos, args=(listOfFilesWithBlurrynessForThisChunk, 0))
         preparedThreads.append(JobStruct(listOfFilesWithBlurrynessForThisChunk, startingIndex))
-        # p.start()
         fullListOfFilesWithBlurryness.extend(listOfFilesWithBlurrynessForThisChunk)
-        #remove_blurry_photos(listOfPhotosWithBlurryness)
         currentNumber+=1
 
     if(not loadDataFromExistingFile):
@@ -98,16 +73,22 @@ def doit():
             pickle.dump(fullListOfFilesWithBlurryness, data_backup)
 
     debugLog("running parallel processing job")
-    with ThreadPoolExecutor(max_workers=24) as e:
+    with ProcessPoolExecutor(max_workers=24) as e:
         for preparedThread in preparedThreads:
             debugLog("submitting job")
             e.submit(remove_blurry_photos,preparedThread.offset)
 
 
 def remove_blurry_photos(offset):
-    debugLog("thresholding and adjusting")
-    [thresholdImages(index, fullListOfFilesWithBlurryness) for index in range(offset,offset+100)]
+    debugLog("thresholding and adjusting between" + repr(offset) + " and " + repr(offset+100))
 
+    for index in range(offset,offset+100, 1):
+        try:
+            thresholdImages(index, fullListOfFilesWithBlurryness)
+            debugLog("thresholding" + repr(index))
+
+        except Exception as e:
+            print(e)
 
 def checkIfBlurry(metric, i, index):
     if(metric <1.0):
@@ -117,13 +98,9 @@ def checkIfBlurry(metric, i, index):
 
 def thresholdImages(index, listOfPhotosWithBlurryness):
     if index != 0:
-        # if(index is not 42):
-        #     return
         i = listOfPhotosWithBlurryness[index]
 
-
         if(i.sunset_metric<-100):
-            # adjustImage(index, listOfPhotosWithBlurryness)
             debugLog("sunset image")
 
         metric = compute_metric(i.color, i.blurryness)
@@ -133,15 +110,13 @@ def thresholdImages(index, listOfPhotosWithBlurryness):
         adjustImageAndPrintFilename(index, listOfPhotosWithBlurryness, metric)
 
 
-#daytime and nighttime metric thresholds used to be 1.1 and 1 respectively
-
 def checkNextAndPreviousIfPossible(i, index, listOfPhotosWithBlurryness, metric):
     if (notFirstOrLastIndex(index, listOfPhotosWithBlurryness) and not compareWithPrevious(index, metric,
                                                                                            listOfPhotosWithBlurryness)):
         debugLog("too blurry")
         if (debug):
-            pass
-            #showImage(i, metric)
+            if(manuallyReviewImages):
+                showImage(i, metric)
         debugLog(index)
         return False
     return True
@@ -155,7 +130,8 @@ def compareWithPrevious(i, metric, allPhotos):
         if(debug):
             print("this vs previous: "+ repr(metric / compute_metric(allPhotos[i-1].color, allPhotos[i-1].blurryness)))
             print("sunset metric" + repr(allPhotos[i].sunset_metric))
-            #showImage(allPhotos[i], "blurry")
+            if(manuallyReviewImages):
+                showImage(allPhotos[i], "blurry")
         return False
     return True
 
@@ -169,22 +145,22 @@ def isNighttime(color):
 
 
 def adjustImageAndPrintFilename(index, listOfPhotosWithBlurryness, metric):
-    path = "/media/hamish/Elements/Timelapse/reprocessed_images/" + repr(index) + ".jpg"
+    path = reprocessed_images_path + repr(index) + ".jpg"
     print(path)
     debugLog("equalising" + listOfPhotosWithBlurryness[index].path)
 
-    determineRelativeBrigtness(index, listOfPhotosWithBlurryness, metric, path)
+    determineRelativeBrigtness(index, listOfPhotosWithBlurryness, metric, oldPath=listOfPhotosWithBlurryness[index].path, newPath =path)
 
 
-def determineRelativeBrigtness(index, listOfPhotosWithBlurryness, metric, path):
+def determineRelativeBrigtness(index, listOfPhotosWithBlurryness, metric, oldPath, newPath):
 
     imagestruct = listOfPhotosWithBlurryness[index]
 
     try:
-        if(not (os.path.isfile(path) or os.path.getsize(path) == 0)):
+        if(not (os.path.isfile(oldPath) or os.path.getsize(oldPath) == 0)):
             return
         if(adjustExistingAdjustedImages):
-            output1  = readAndResize(path)
+            output1  = readAndResize(oldPath)
         else:
             output1 = readAndResize(listOfPhotosWithBlurryness[index].path)
         if(output1 is None):
@@ -210,9 +186,6 @@ def determineRelativeBrigtness(index, listOfPhotosWithBlurryness, metric, path):
             #     output1[:][0:1750]= numpy.mean(finalistMeans, axis=0)
 
             color = imagestruct.color
-
-            # todo, could try this with averaging, with the main image having an outsized impact compared to the other images
-            # todo, brightness normalisation has to be done before comparing blurryness values, since the phone seems to be alternating between brightness levels resulting in false negatives
 
             # images = []
             # images.append(cv2.imread(listOfPhotosWithBlurryness[index-1].path))
@@ -244,7 +217,7 @@ def determineRelativeBrigtness(index, listOfPhotosWithBlurryness, metric, path):
             stampText("nighttime" + repr(metric), bgr)
         else:
             stampText("daytime" + repr(metric), bgr)
-    cv2.imwrite(path, bgr, [int(cv2.IMWRITE_JPEG_QUALITY), 99])
+    cv2.imwrite(newPath, bgr, [int(cv2.IMWRITE_JPEG_QUALITY), 99])
 
 
 
@@ -252,7 +225,7 @@ def getNextGoodImage(index, listOfPhotosWithBlurryness):
     i = index+1
     metric = compute_metric(listOfPhotosWithBlurryness[i].color, listOfPhotosWithBlurryness[i].blurryness)
 
-    while(not checkIfBlurry(metric, listOfPhotosWithBlurryness[i],index, fullListOfFilesWithBlurryness) and
+    while(not checkIfBlurry(metric, listOfPhotosWithBlurryness[i],index) and
           not (i == 1 or i == len(listOfPhotosWithBlurryness) - 1)):
         metric = compute_metric(listOfPhotosWithBlurryness[i].color, listOfPhotosWithBlurryness[i].blurryness)
         i+=1
@@ -264,7 +237,7 @@ def getNextGoodImage(index, listOfPhotosWithBlurryness):
 def getLastGoodImage(index, listOfPhotosWithBlurryness):
     i = index-1
     metric = compute_metric(listOfPhotosWithBlurryness[i].color, listOfPhotosWithBlurryness[i].blurryness)
-    while(not checkIfBlurry(metric, listOfPhotosWithBlurryness[i],index, fullListOfFilesWithBlurryness) and
+    while(not checkIfBlurry(metric, listOfPhotosWithBlurryness[i],index) and
           not (i == 1 or i == len(listOfPhotosWithBlurryness) - 1)):
         metric = compute_metric(listOfPhotosWithBlurryness[i].color, listOfPhotosWithBlurryness[i].blurryness)
         i-=1
@@ -301,7 +274,6 @@ def stampText(text, resize):
 def renderNoText(image):
     cv2.namedWindow("", cv2.WINDOW_AUTOSIZE)
     resize = cv2.resize(image, (2400, 2000))
-    font = cv2.FONT_HERSHEY_SIMPLEX
     cv2.imshow("", resize)
     cv2.waitKey(0)
     cv2.destroyAllWindows()
@@ -316,8 +288,8 @@ def determineIfBlurry(imagePath):
     imageA = cv2.imread(imagePath)
 
 
-    #Rejects images already seen
-    #currently doesn't seem necessary so leaving it commented out
+    ##Rejects images already seen
+    ##currently doesn't seem necessary so leaving it commented out
     # middle_line = [lambda x: (x[0],x[1],x[2]) for x in imageA[2000:2001][0]]
     # if (middle_line in middle_lines):
     #     # rejecting as a dupe
@@ -342,7 +314,7 @@ def compute_metric(color_, fm):
 def calculateBlurryNess(imageA, imagePath):
     imageB = cv2.resize(imageA,(4000,3000), interpolation = cv2.INTER_CUBIC)
     image = cv2.GaussianBlur(imageB, (15, 15), 0)  # This removes some of the noise
-    # Writes a sample with the blur applied
+    # Writes a sample with the blur applied (used when tuning this)
     # cv2.imwrite("/home/hamish/buffer/cropped" + imagePath.split("/")[-1]+".jpg", image)
     gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
     # remove the sky since during the day it'll trick it into thinking it's out of focus
