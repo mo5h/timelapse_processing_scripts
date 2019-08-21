@@ -10,14 +10,40 @@ from exif import Image
 from datetime import datetime
 import cv2
 import os.path
+import argparse
+
+
+
+"""
+
+Usage notes:
+processes image in 100 image chunks
+starting and ending numbers are multiplied by 100
+i.e if starting number was 0 and ending number was 1 it'd do the first 100 images
+expects images to include a number which says what image it is in sequence.
+e.g photo12345.jpg
+ 
+"""
 
 blurryOrNot = {}
 threshold = 8
 PictureStruct = namedtuple("PictureStruct", "blurryness path date_taken color sunset_metric")
 JobStruct = namedtuple("JobStruct", "files offset")
-reprocessed_images_path = "/media/hamish/Elements/Timelapse/reprocessed_images/"
-file_path_of_input_images = "/media/hamish/Elements/photos/photos/"
-precaculated_data_path = "/home/hamish/buffer/blurryness_data"
+
+parser = argparse.ArgumentParser(description="Takes the images in the directory provided, removes the blurry photos, equalises the brightness, then writes new images with the changes to a new directory"
+                                 ,usage="python3 /home/hamish/non-atlassian/blur_detection/remove_blurry_photos_and_equalise_brightness.py --inputdir /media/hamish/Elements/photos/photos --outputdir /media/hamish/Elements/Timelapse/reprocessed_images_2 --startingnumber 3550 --endingnumber 3551")
+parser.add_argument("--inputdir")
+parser.add_argument("--outputdir")
+parser.add_argument("--startingnumber", type=int)
+parser.add_argument("--endingnumber", type=int)
+args = parser.parse_args()
+
+reprocessed_images_path = args.outputdir #"/media/hamish/Elements/photos/photos/"args.inputdir #"/media/hamish/Elements/Timelapse/reprocessed_images/"
+file_path_of_input_images = args.inputdir #"/media/hamish/Elements/photos/photos/"
+startingNumber = args.startingnumber #3550
+endingNumber = args.endingnumber #3650
+
+precaculated_data_path = "./"
 
 middle_lines = []
 
@@ -43,10 +69,11 @@ fullListOfFilesWithBlurryness = []
 
 
 def doit():
+
+
     preparedThreads = []
-    startingNumber = 3550
     currentNumber = startingNumber
-    while(currentNumber<3650):
+    while(currentNumber < endingNumber):
         debugLog("doing batch" + repr(currentNumber))
         startingIndex = (currentNumber - startingNumber) * 100
         #e.g photo359863.jpg
@@ -72,10 +99,8 @@ def doit():
         with open("./blurryness_data", 'wb') as data_backup:
             pickle.dump(fullListOfFilesWithBlurryness, data_backup)
 
-    debugLog("running parallel processing job")
     with ProcessPoolExecutor(max_workers=24) as e:
         for preparedThread in preparedThreads:
-            debugLog("submitting job")
             e.submit(remove_blurry_photos,preparedThread.offset)
 
 
@@ -88,6 +113,7 @@ def remove_blurry_photos(offset):
             debugLog("thresholding" + repr(index))
 
         except Exception as e:
+            print("error removing blurry images")
             print(e)
 
 def checkIfBlurry(metric, i, index):
